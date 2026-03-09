@@ -4,15 +4,46 @@ import Image from "next/image";
 import "./landing.css"; // Ensure standard normal CSS is imported
 import LoginModal from "../components/loginPopup"
 import { useRouter } from "next/navigation";
-import { useSession } from "next-auth/react";
+import { useSession, signOut } from "next-auth/react";
 
 export default function LandingPage() {
   const [open, setOpen] = useState(false);
   const [isCalendarAnimating, setIsCalendarAnimating] = useState(false);
   const [activeFaq, setActiveFaq] = useState<number | null>(0);
   const [showLogin, setShowLogin] = useState(false);
+  const [showUserMenu, setShowUserMenu] = useState(false);
   const router = useRouter();
   const { data: session } = useSession();
+
+  // Inactivity Logout Logic (e.g., 30 minutes of inactivity)
+  React.useEffect(() => {
+    if (!session) return;
+
+    let inactivityTimer: NodeJS.Timeout;
+
+    const resetTimer = () => {
+      if (inactivityTimer) clearTimeout(inactivityTimer);
+      inactivityTimer = setTimeout(() => {
+        signOut({ callbackUrl: "/" });
+      }, 30 * 60 * 1000); // 30 minutes
+    };
+
+    // Track user activity
+    window.addEventListener("mousemove", resetTimer);
+    window.addEventListener("keydown", resetTimer);
+    window.addEventListener("click", resetTimer);
+    window.addEventListener("scroll", resetTimer);
+
+    resetTimer(); // Initialize timer
+
+    return () => {
+      window.removeEventListener("mousemove", resetTimer);
+      window.removeEventListener("keydown", resetTimer);
+      window.removeEventListener("click", resetTimer);
+      window.removeEventListener("scroll", resetTimer);
+      if (inactivityTimer) clearTimeout(inactivityTimer);
+    };
+  }, [session]);
 
   const handleCalendarClick = () => {
     setIsCalendarAnimating(true);
@@ -28,11 +59,32 @@ export default function LandingPage() {
         <nav className="navbar">
           <div className="logo">FFCS</div>
           {session ? (
-            <div className="flex items-center gap-3">
-              {session.user?.image && (
-                <img src={session.user.image} alt="avatar" className="w-8 h-8 rounded-full" />
+            <div className="relative">
+              <div
+                className="flex items-center gap-3 cursor-pointer hover:opacity-80 transition-opacity"
+                onClick={() => setShowUserMenu(!showUserMenu)}
+              >
+                {session.user?.image && (
+                  <img src={session.user.image} alt="avatar" className="w-8 h-8 rounded-full" referrerPolicy="no-referrer" />
+                )}
+                <span className="font-semibold text-black pr-8">{session.user?.name}</span>
+                <span className={`text-black transition-transform duration-200 ${showUserMenu ? 'rotate-180' : ''}`} style={{ marginLeft: '-25px', position: 'relative', top: '2px' }}>⌄</span>
+              </div>
+
+              {showUserMenu && (
+                <>
+                  <div className="fixed inset-0 z-10" onClick={() => setShowUserMenu(false)}></div>
+                  <div className="absolute right-0 mt-2 w-48 bg-white border border-gray-200 rounded-xl shadow-xl z-20 py-2 animate-lucid-fade-up">
+                    <button
+                      className="w-full text-left px-4 py-2 text-sm text-red-600 font-bold hover:bg-red-50 transition-colors flex items-center gap-2"
+                      onClick={() => signOut({ callbackUrl: "/" })}
+                    >
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" /></svg>
+                      Log out
+                    </button>
+                  </div>
+                </>
               )}
-              <span className="font-semibold text-black pr-8">{session.user?.name}</span>
             </div>
           ) : (
             <button className="login-btn" onClick={() => setShowLogin(true)}>Login</button>
@@ -66,9 +118,21 @@ export default function LandingPage() {
                           <Image src="/create_new.png" alt="create" width={167} height={101} />
                           <p className="font-medium text-center">Create a new one</p>
                         </button>
-                        <button className="flex flex-col items-center justify-center bg-[#E9D5FF] border-[#F2D8FE] border-[5px] rounded-[16px] p-6 w-[290px] h-[200px] shadow hover:bg-purple-300 transition text-black" onClick={() => { setOpen(false); router.push("/saved"); }}>
+                        <button
+                          className="flex flex-col items-center justify-center bg-[#E9D5FF] border-[#F2D8FE] border-[5px] rounded-[16px] p-6 w-[290px] h-[200px] shadow hover:bg-purple-300 transition text-black"
+                          onClick={() => {
+                            if (!session) {
+                              setShowLogin(true);
+                            } else {
+                              setOpen(false);
+                              router.push("/saved");
+                            }
+                          }}
+                        >
                           <Image src="/savedTimetable.png" alt="saved" width={167} height={101} unoptimized />
-                          <p className="mt-4 font-medium text-center">View saved timetables</p>
+                          <p className="mt-4 font-medium text-center">
+                            {session ? "View saved timetables" : "Log in to view saved timetables"}
+                          </p>
                         </button>
                       </div>
                     </div>
@@ -234,7 +298,16 @@ export default function LandingPage() {
                 <Image src="/calendar_icon2.png" alt="calendar" width={32} height={32} />
                 <span>Generate<br />timetable</span>
               </button>
-              <button className="f-btn f-btn-saved" onClick={() => router.push('/saved')}>
+              <button 
+                className="f-btn f-btn-saved" 
+                onClick={() => {
+                  if (!session) {
+                    setShowLogin(true);
+                  } else {
+                    router.push('/saved');
+                  }
+                }}
+              >
                 <Image src="/Clock.png" alt="clock" width={32} height={32} />
                 <span>View saved<br />timetables</span>
               </button>

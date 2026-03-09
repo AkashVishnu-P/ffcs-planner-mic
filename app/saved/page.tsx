@@ -356,7 +356,7 @@ export default function SavedPage() {
                         <div className="user-section">
                             <div className="avatar">
                                 {session?.user?.image
-                                    ? <Image src={session.user.image} alt="avatar" width={36} height={36} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} unoptimized />
+                                    ? <Image src={session.user.image} alt="avatar" width={36} height={36} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} unoptimized referrerPolicy="no-referrer" />
                                     : (session?.user?.name?.[0] || '?')}
                             </div>
                             <span className="user-name">{session?.user?.name || 'Guest'}</span>
@@ -719,7 +719,7 @@ function TimetableDetailView({
                 <div className="user-section">
                     <div className="avatar">
                         {session?.user?.image
-                            ? <Image src={session.user.image} alt="avatar" width={36} height={36} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} unoptimized />
+                            ? <Image src={session.user.image} alt="avatar" width={36} height={36} style={{ width: '100%', height: '100%', objectFit: 'cover', borderRadius: '50%' }} unoptimized referrerPolicy="no-referrer" />
                             : (session?.user?.name?.[0] || '?')}
                     </div>
                     <span className="user-name">{session?.user?.name || 'Guest'}</span>

@@ -432,7 +432,7 @@ export default function TimetablePage() {
                 <div className="flex items-center justify-between max-w-[1400px] mx-auto">
                     <div className="flex items-center gap-3">
                         {session?.user?.image ? (
-                            <img src={session.user.image} alt="User avatar" className="w-10 h-10 rounded-full" />
+                            <img src={session.user.image} alt="User avatar" className="w-10 h-10 rounded-full" referrerPolicy="no-referrer" />
                         ) : (
                             <div className="w-10 h-10 bg-gray-300 rounded-full"></div>
                         )}
