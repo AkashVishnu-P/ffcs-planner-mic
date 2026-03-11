@@ -417,7 +417,7 @@ export default function PreferencesPage() {
                         >
                             {stepNum === currentStep ? (
                                 <div key={`active-step-${currentStep}`} className="w-full h-full p-8 flex flex-col animate-lucid-panel-in">
-                                    <h2 className="text-2xl font-bold mb-10 text-black">
+                                    <h2 className="text-2xl font-bold mb-6 text-black">
                                         {stepNum}. {STEP_LABELS[stepNum - 1]}
                                     </h2>
 
