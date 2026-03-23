@@ -65,41 +65,51 @@ const createUid = () =>
         : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
 const buildPreferenceCoursesFromRows = (rows: FacultyEntry[]): fullCourseData[] => {
-    const groups: CourseGroup[] = [];
+    // 1. Group rows by course code (so a course only exists once)
+    const coursesMap = new Map<string, {
+        courseCode: string;
+        courseName: string;
+        slotsMap: Map<string, Set<string>>; // slotName -> set of faculty names
+    }>();
 
-    rows.forEach((row) => {
-        const existingGroup = groups.find(
-            (group) =>
-                group.courseCode === row.courseCode &&
-                group.courseName === row.courseName &&
-                group.slot === row.slot,
-        );
-
-        if (existingGroup) {
-            existingGroup.faculties.push(row.facultyName);
-            return;
+    rows.forEach(row => {
+        if (!coursesMap.has(row.courseCode)) {
+            coursesMap.set(row.courseCode, {
+                courseCode: row.courseCode,
+                courseName: row.courseName, // typically identical across same course code
+                slotsMap: new Map(),
+            });
         }
 
-        groups.push({
-            courseCode: row.courseCode,
-            courseName: row.courseName,
-            slot: row.slot,
-            faculties: [row.facultyName],
+        const courseGroup = coursesMap.get(row.courseCode)!;
+
+        if (!courseGroup.slotsMap.has(row.slot)) {
+            courseGroup.slotsMap.set(row.slot, new Set());
+        }
+
+        courseGroup.slotsMap.get(row.slot)!.add(row.facultyName);
+    });
+
+    const result: fullCourseData[] = [];
+
+    // 2. Convert to the expected fullCourseData format
+    coursesMap.forEach((course) => {
+        const courseSlots = Array.from(course.slotsMap.entries()).map(([slotName, facultySet]) => ({
+            slotName,
+            slotFaculties: Array.from(facultySet).map(facultyName => ({ facultyName }))
+        }));
+
+        result.push({
+            // Using a simpler ID or one that encompasses all slots securely
+            id: `${course.courseCode}_${Date.now()}_${Math.random().toString(36).slice(2)}`,
+            courseType: getCourseType(course.courseCode),
+            courseCode: course.courseCode,
+            courseName: course.courseName,
+            courseSlots,
         });
     });
 
-    return groups.map((group) => ({
-        id: `${group.courseCode} - ${group.courseName}_${group.slot}_${group.faculties.join('_')}`,
-        courseType: getCourseType(group.courseCode),
-        courseCode: group.courseCode,
-        courseName: group.courseName,
-        courseSlots: [
-            {
-                slotName: group.slot,
-                slotFaculties: group.faculties.map((facultyName) => ({ facultyName })),
-            },
-        ],
-    }));
+    return result;
 };
 
 // Detect if two slots clash
@@ -145,7 +155,7 @@ export default function CoursesPage() {
     const [rowEffects, setRowEffects] = useState<Record<string, string>>({});
     const [isReordering, setIsReordering] = useState(false);
     const [clashingUids, setClashingUids] = useState<Set<string>>(new Set());
-    const [editingTimetableTitle, setEditingTimetableTitle] = useState<string | null>(null);
+
     const [deletedRow, setDeletedRow] = useState<{ faculty: FacultyEntry; index: number } | null>(null);
 
     useEffect(() => {
@@ -155,14 +165,9 @@ export default function CoursesPage() {
             const savedSubject = getCookie('preferenceSubject');
             const savedSlot = getCookie('preferenceSlot');
             const savedAllSubjectsMode = getCookie('allSubjectsMode');
-            const editingTitle = getCookie('editingTimetableTitle');
 
             if (savedAllSubjectsMode) {
                 setAllSubjectsMode(JSON.parse(savedAllSubjectsMode));
-            }
-
-            if (editingTitle) {
-                setEditingTimetableTitle(editingTitle);
             }
 
             if (savedPreferenceCourses) {
@@ -346,8 +351,8 @@ export default function CoursesPage() {
 
     return (
         <div className={`min-h-screen bg-[#F5E6D3] font-sans flex flex-col transition-all duration-500 ${isVisible ? 'opacity-100 translate-y-0' : 'opacity-0 translate-y-2'}`}>
-            <div className="flex-1 p-8">
-                
+            <div className="flex-1 p-[clamp(16px,2vw,32px)] overflow-auto">
+
 
                 {clashingUids.size > 0 && (
                     <div className="bg-red-100 border-2 border-red-400 rounded-lg px-6 py-4 mb-6 flex items-center gap-3 animate-lucid-fade-up">
@@ -365,11 +370,11 @@ export default function CoursesPage() {
                 <div className="bg-white rounded-2xl shadow-md overflow-hidden mb-4 animate-lucid-fade-up-delayed">
                     {/* Green header */}
                     <div className="bg-[#c6f6c6] px-6 py-4">
-                        <h2 className="text-xl font-bold text-black">Selected Courses</h2>
+                        <h2 className="text-2xl font-bold text-black">Selected Courses</h2>
                     </div>
 
                     {/* Table header */}
-                    <div className="grid grid-cols-[56px_160px_1fr_140px_160px_120px] border-b border-gray-200 bg-white">
+                    <div className="grid grid-cols-[40px_minmax(80px,1fr)_minmax(100px,2fr)_minmax(60px,1fr)_minmax(80px,1fr)_minmax(80px,100px)] border-b border-gray-200 bg-white">
                         <div className="px-4 py-3 text-sm font-bold text-black">No</div>
                         <div className="px-4 py-3 text-sm font-bold text-black">Course Code</div>
                         <div className="px-4 py-3 text-sm font-bold text-black">Course Name</div>
@@ -392,66 +397,61 @@ export default function CoursesPage() {
                                 return (
                                     <div key={faculty.uid}>
                                         <div
-                                            className={`grid grid-cols-[56px_160px_1fr_140px_160px_120px] border-b border-gray-100 items-center transition-colors ${
-                                                isDusting ? 'pointer-events-none' : ''
-                                            } ${
-                                                hasClash ? 'bg-red-50' : 'bg-white hover:bg-gray-50'
-                                            } ${rowEffects[faculty.uid] || ''}`}
+                                            className={`grid grid-cols-[40px_minmax(80px,1fr)_minmax(100px,2fr)_minmax(60px,1fr)_minmax(80px,1fr)_minmax(80px,100px)] border-b border-gray-100 items-center transition-colors ${isDusting ? 'pointer-events-none' : ''
+                                                } ${hasClash ? 'bg-red-50' : 'bg-white hover:bg-gray-50'
+                                                } ${rowEffects[faculty.uid] || ''}`}
                                         >
-                                            <div className={`px-4 py-4 text-sm font-semibold ${ hasClash ? 'text-red-600' : 'text-gray-800'}`}>{faculty.no}</div>
-                                            <div className={`px-4 py-4 text-sm font-bold font-mono ${ hasClash ? 'text-red-600' : 'text-gray-900'}`}>{faculty.courseCode}</div>
-                                            <div className={`px-4 py-4 text-sm ${ hasClash ? 'text-red-600' : 'text-gray-800'}`}>
+                                            <div className={`px-4 py-4 text-sm font-semibold ${hasClash ? 'text-red-600' : 'text-gray-800'}`}>{faculty.no}</div>
+                                            <div className={`px-4 py-4 text-sm font-bold font-mono ${hasClash ? 'text-red-600' : 'text-gray-900'}`}>{faculty.courseCode}</div>
+                                            <div className={`px-4 py-4 text-sm ${hasClash ? 'text-red-600' : 'text-gray-800'}`}>
                                                 {nameParts.map((n, i) => <div key={i}>{n}</div>)}
                                             </div>
-                                            <div className={`px-4 py-4 text-sm font-semibold ${ hasClash ? 'text-red-600' : 'text-gray-800'}`}>
+                                            <div className={`px-4 py-4 text-sm font-semibold ${hasClash ? 'text-red-600' : 'text-gray-800'}`}>
                                                 {slotParts.map((s, i) => <div key={i}>{s}</div>)}
                                             </div>
-                                            <div className={`px-4 py-4 text-sm ${ hasClash ? 'text-red-600' : 'text-gray-600'}`}>{faculty.facultyName}</div>
+                                            <div className={`px-4 py-4 text-sm ${hasClash ? 'text-red-600' : 'text-gray-600'}`}>{faculty.facultyName}</div>
                                             <div className="px-4 py-4 flex items-center gap-1">
                                                 {/* Up button */}
                                                 <button
                                                     onClick={() => handleMoveUp(index)}
                                                     disabled={index === 0 || isDusting || isReordering}
                                                     title="Move up"
-                                                    className={`w-8 h-8 flex items-center justify-center rounded border transition-all ${
-                                                        index === 0 || isDusting || isReordering
-                                                            ? 'border-gray-200 text-gray-300 cursor-not-allowed'
-                                                            : 'border-gray-300 text-gray-500 hover:bg-gray-100 cursor-pointer'
-                                                    }`}
+                                                    className={`w-8 h-8 flex items-center justify-center rounded border transition-all ${index === 0 || isDusting || isReordering
+                                                        ? 'border-gray-200 text-gray-300 cursor-not-allowed'
+                                                        : 'border-gray-300 text-gray-500 hover:bg-gray-100 cursor-pointer'
+                                                        }`}
                                                 >
-                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 15l-6-6-6 6"/></svg>
+                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 15l-6-6-6 6" /></svg>
                                                 </button>
                                                 {/* Down button */}
                                                 <button
                                                     onClick={() => handleMoveDown(index)}
                                                     disabled={index === faculties.length - 1 || isDusting || isReordering}
                                                     title="Move down"
-                                                    className={`w-8 h-8 flex items-center justify-center rounded border transition-all ${
-                                                        index === faculties.length - 1 || isDusting || isReordering
-                                                            ? 'border-gray-200 text-gray-300 cursor-not-allowed'
-                                                            : 'border-gray-300 text-gray-500 hover:bg-gray-100 cursor-pointer'
-                                                    }`}
+                                                    className={`w-8 h-8 flex items-center justify-center rounded border transition-all ${index === faculties.length - 1 || isDusting || isReordering
+                                                        ? 'border-gray-200 text-gray-300 cursor-not-allowed'
+                                                        : 'border-gray-300 text-gray-500 hover:bg-gray-100 cursor-pointer'
+                                                        }`}
                                                 >
-                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M6 9l6 6 6-6"/></svg>
+                                                    <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M6 9l6 6 6-6" /></svg>
                                                 </button>
                                                 {/* Delete button */}
                                                 <button
                                                     onClick={() => handleRemove(index)}
                                                     disabled={isDusting}
                                                     title="Remove"
-                                                    className={`w-8 h-8 flex items-center justify-center rounded border transition-all ${
-                                                        isDusting
-                                                            ? 'border-red-100 text-red-200 cursor-not-allowed'
-                                                            : 'border-red-200 text-red-400 hover:bg-red-50 hover:text-red-600 cursor-pointer'
-                                                    }`}
+                                                    className={`w-8 h-8 flex items-center justify-center rounded border transition-all ${isDusting
+                                                        ? 'border-red-100 text-red-200 cursor-not-allowed'
+                                                        : 'border-red-200 text-red-400 hover:bg-red-50 hover:text-red-600 cursor-pointer'
+                                                        }`}
                                                 >
-                                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                                                    <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><polyline points="3 6 5 6 21 6" /><path d="M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2" /></svg>
                                                 </button>
                                             </div>
                                         </div>
                                         {/* Inline undo row shown right after deleted item position */}
                                         {deletedRow && deletedRow.index === index + 1 && (
-                                            <div className="grid grid-cols-[56px_160px_1fr_140px_160px_120px] border-b border-gray-100 bg-gray-50 items-center">
+                                            <div className="grid grid-cols-[40px_minmax(80px,1fr)_minmax(100px,2fr)_minmax(60px,1fr)_minmax(80px,1fr)_minmax(80px,100px)] border-b border-gray-100 bg-gray-50 items-center">
                                                 <div />
                                                 <div className="col-span-4 px-4 py-3 text-sm text-gray-500 italic">Subject deleted.</div>
                                                 <div className="px-4 py-3">
@@ -467,7 +467,7 @@ export default function CoursesPage() {
                             })}
                             {/* Undo row at bottom when deleted row was last */}
                             {deletedRow && deletedRow.index >= faculties.length && (
-                                <div className="grid grid-cols-[56px_160px_1fr_140px_160px_120px] border-b border-gray-100 bg-gray-50 items-center">
+                                <div className="grid grid-cols-[40px_minmax(80px,1fr)_minmax(100px,2fr)_minmax(60px,1fr)_minmax(80px,1fr)_minmax(80px,100px)] border-b border-gray-100 bg-gray-50 items-center">
                                     <div />
                                     <div className="col-span-4 px-4 py-3 text-sm text-gray-500 italic">Subject deleted.</div>
                                     <div className="px-4 py-3">
@@ -480,7 +480,7 @@ export default function CoursesPage() {
                             )}
                             {/* Remove all undo row */}
                             {faculties.length === 0 && lastRemovedFaculties && lastRemovedFaculties.length > 0 && (
-                                <div className="grid grid-cols-[56px_160px_1fr_140px_160px_120px] border-b border-gray-100 bg-gray-50 items-center">
+                                <div className="grid grid-cols-[40px_minmax(80px,1fr)_minmax(100px,2fr)_minmax(60px,1fr)_minmax(80px,1fr)_minmax(80px,100px)] border-b border-gray-100 bg-gray-50 items-center">
                                     <div />
                                     <div className="col-span-4 px-4 py-3 text-sm text-gray-500 italic">All courses deleted.</div>
                                     <div className="px-4 py-3">
@@ -509,8 +509,8 @@ export default function CoursesPage() {
             </div>
 
             {/* Bottom nav */}
-            <div className="bg-white border-t border-gray-300 py-6 px-8 shadow-lg animate-lucid-fade-up-delayed">
-                <div className="flex items-center justify-between max-w-7xl mx-auto">
+            <div className="bg-white border-t border-gray-300 py-4 px-[clamp(16px,2vw,32px)] shadow-lg animate-lucid-fade-up-delayed shrink-0">
+                <div className="flex flex-wrap items-center justify-between max-w-7xl mx-auto gap-3">
                     <div className="flex items-center gap-3">
                         {session?.user?.image ? (
                             <img src={session.user.image} alt="User avatar" className="w-10 h-10 rounded-full" referrerPolicy="no-referrer" />
@@ -520,7 +520,7 @@ export default function CoursesPage() {
                         <span className="text-gray-700 text-sm font-semibold">{session?.user?.name || 'Guest'}</span>
                     </div>
 
-                    <div className="flex items-center gap-3">
+                    <div className="flex flex-wrap items-center gap-2">
                         {[1, 2, 3, 4].map((num) => (
                             <button
                                 key={num}
@@ -530,9 +530,8 @@ export default function CoursesPage() {
                                     if (num === 3) router.push('/timetable');
                                     if (num === 4) router.push('/saved');
                                 }}
-                                className={`px-5 py-2 rounded-lg font-semibold text-sm cursor-pointer ${
-                                    num === 2 ? 'bg-[#A0C4FF] text-black' : 'bg-[#A0C4FF]/40 text-gray-700'
-                                }`}
+                                className={`px-5 py-2 rounded-lg font-semibold text-sm cursor-pointer ${num === 2 ? 'bg-[#A0C4FF] text-black' : 'bg-[#A0C4FF]/40 text-gray-700'
+                                    }`}
                             >
                                 {num === 2 ? '2. Faculty Preferences' : num}
                             </button>
@@ -543,7 +542,6 @@ export default function CoursesPage() {
                         <button
                             onClick={() => {
                                 deleteCookie('editingTimetableId');
-                                deleteCookie('editingTimetableTitle');
                                 router.push('/preferences');
                             }}
                             className="px-8 py-2.5 border-2 border-gray-400 rounded-lg font-semibold text-sm hover:bg-gray-50 text-black transition cursor-pointer"
